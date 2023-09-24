@@ -20,6 +20,7 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.os.Bundle
 import android.util.Log
+import android.util.Size
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -139,7 +140,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
 
         // When clicked, increase the number of objects that can be detected at a time
         fragmentCameraBinding.bottomSheetLayout.maxResultsPlus.setOnClickListener {
-            if (objectDetectorHelper.maxResults < 5) {
+            if (objectDetectorHelper.maxResults < 25) {
                 objectDetectorHelper.maxResults++
                 updateControlsUi()
             }
@@ -243,6 +244,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
         // ImageAnalysis. Using RGBA 8888 to match how our models work
         imageAnalyzer =
             ImageAnalysis.Builder()
+                //.setTargetResolution(Size(1080, 1440))
                 .setTargetAspectRatio(AspectRatio.RATIO_4_3)
                 .setTargetRotation(fragmentCameraBinding.viewFinder.display.rotation)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
@@ -260,7 +262,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
                               Bitmap.Config.ARGB_8888
                             )
                         }
-
+                        //Log.d("cube", "${image.width} x ${image.height}")
                         detectObjects(image)
                     }
                 }
@@ -284,6 +286,11 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
         // Copy out RGB bits to the shared bitmap buffer
         image.use { bitmapBuffer.copyPixelsFromBuffer(image.planes[0].buffer) }
 
+//        val scaled = Bitmap.createScaledBitmap(bitmapBuffer, 256 * image.width / image.height, 256, false)
+//        Log.d("scaled", "${scaled.width} x ${scaled.height}")
+//        val offset = (scaled.width - scaled.height) / 2
+//        val cropped = Bitmap.createBitmap(scaled, offset, 0, 256, 256)
+
         val imageRotation = image.imageInfo.rotationDegrees
         // Pass Bitmap and rotation to the object detector helper for processing and detection
         objectDetectorHelper.detect(bitmapBuffer, imageRotation)
@@ -302,6 +309,7 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
       imageHeight: Int,
       imageWidth: Int
     ) {
+        Log.d("cube", results.toString())
         activity?.runOnUiThread {
             fragmentCameraBinding.bottomSheetLayout.inferenceTimeVal.text =
                             String.format("%d ms", inferenceTime)
@@ -311,6 +319,28 @@ class CameraFragment : Fragment(), ObjectDetectorHelper.DetectorListener {
                 results ?: LinkedList<Detection>(),
                 imageHeight,
                 imageWidth
+            )
+
+            // Force a redraw
+            fragmentCameraBinding.overlay.invalidate()
+        }
+    }
+
+    // Update UI after objects have been detected. Extracts original image height/width
+    // to scale and place bounding boxes properly through OverlayView
+    override fun onCropResult(
+        results: MutableList<Detection>?,
+        inferenceTime: Long,
+        croppedImage: Bitmap
+    ) {
+        Log.d("cube", "cropped result: ${croppedImage.width} x ${croppedImage.height}")
+        activity?.runOnUiThread {
+            fragmentCameraBinding.bottomSheetLayout.inferenceTimeVal.text =
+                String.format("%d ms", inferenceTime)
+
+            // Pass necessary information to OverlayView for drawing on the canvas
+            fragmentCameraBinding.overlay.setCroppedResult(
+                croppedImage
             )
 
             // Force a redraw

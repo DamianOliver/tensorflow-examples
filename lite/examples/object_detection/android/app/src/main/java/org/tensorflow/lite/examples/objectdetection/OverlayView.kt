@@ -17,6 +17,7 @@
 package org.tensorflow.lite.examples.objectdetection
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -32,6 +33,7 @@ import org.tensorflow.lite.task.vision.detector.Detection
 class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs) {
 
     private var results: List<Detection> = LinkedList<Detection>()
+    private var croppedImageResult: Bitmap? = null
     private var boxPaint = Paint()
     private var textBackgroundPaint = Paint()
     private var textPaint = Paint()
@@ -68,6 +70,10 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
 
     override fun draw(canvas: Canvas) {
         super.draw(canvas)
+
+        if (croppedImageResult != null) {
+            canvas.drawBitmap(croppedImageResult!!, null, RectF(0f, 0f, width.toFloat(), width.toFloat()), null)
+        }
 
         for (result in results) {
             val boundingBox = result.boundingBox
@@ -109,10 +115,19 @@ class OverlayView(context: Context?, attrs: AttributeSet?) : View(context, attrs
       imageWidth: Int,
     ) {
         results = detectionResults
+        croppedImageResult = null
 
         // PreviewView is in FILL_START mode. So we need to scale up the bounding box to match with
         // the size that the captured images will be displayed.
         scaleFactor = max(width * 1f / imageWidth, height * 1f / imageHeight)
+    }
+
+    fun setCroppedResult(
+        croppedImage: Bitmap
+    ) {
+        croppedImageResult = croppedImage
+        results = emptyList()
+        scaleFactor = 1f
     }
 
     companion object {

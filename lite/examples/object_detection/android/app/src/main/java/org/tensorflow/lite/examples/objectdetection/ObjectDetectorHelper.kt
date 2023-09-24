@@ -22,6 +22,8 @@ import android.util.Log
 import org.tensorflow.lite.gpu.CompatibilityList
 import org.tensorflow.lite.support.image.ImageProcessor
 import org.tensorflow.lite.support.image.TensorImage
+import org.tensorflow.lite.support.image.ops.ResizeOp
+import org.tensorflow.lite.support.image.ops.ResizeWithCropOrPadOp
 import org.tensorflow.lite.support.image.ops.Rot90Op
 import org.tensorflow.lite.task.core.BaseOptions
 import org.tensorflow.lite.task.vision.detector.Detection
@@ -84,10 +86,10 @@ class ObjectDetectorHelper(
 
         val modelName =
             when (currentModel) {
-                MODEL_MOBILENETV1 -> "mobilenetv1.tflite"
+                MODEL_MOBILENETV1 -> "cubecrop.0_224_metadata.tflite"
                 MODEL_EFFICIENTDETV0 -> "efficientdet-lite0.tflite"
                 MODEL_EFFICIENTDETV1 -> "efficientdet-lite1.tflite"
-                MODEL_EFFICIENTDETV2 -> "efficientdet-lite2.tflite"
+                MODEL_EFFICIENTDETV2 -> "handcube1_metadata.tflite"
                 else -> "mobilenetv1.tflite"
             }
 
@@ -114,21 +116,55 @@ class ObjectDetectorHelper(
         // Create preprocessor for the image.
         // See https://www.tensorflow.org/lite/inference_with_metadata/
         //            lite_support#imageprocessor_architecture
+
+        val isLandscape = image.width > image.height
+        val targetWidth = if (isLandscape) INPUT_DIM * image.width / image.height else INPUT_DIM
+        val targetHeight = if (isLandscape) INPUT_DIM else INPUT_DIM * image.height / image.width
+
         val imageProcessor =
             ImageProcessor.Builder()
+                .add(ResizeOp(targetWidth, targetHeight, ResizeOp.ResizeMethod.BILINEAR))
+                .add(
+                    ResizeWithCropOrPadOp(INPUT_DIM, INPUT_DIM))
                 .add(Rot90Op(-imageRotation / 90))
                 .build()
 
         // Preprocess the image and convert it into a TensorImage for detection.
         val tensorImage = imageProcessor.process(TensorImage.fromBitmap(image))
 
+        Log.d("cube", "image ${image.height} x ${image.width} rot ${imageRotation}")
+
+        Log.d("cube", "tensorImage ${tensorImage.height} x ${tensorImage.width}")
+
         val results = objectDetector?.detect(tensorImage)
         inferenceTime = SystemClock.uptimeMillis() - inferenceTime
-        objectDetectorListener?.onResults(
-            results,
-            inferenceTime,
-            tensorImage.height,
-            tensorImage.width)
+
+        if (!results.isNullOrEmpty()) {
+            val detection: Detection = results[0]
+            val detectionBox = imageProcessor.inverseTransform(detection.boundingBox, image.height, image.width)
+            Log.d("cube", "boundingBox ${detection.boundingBox}")
+            Log.d("cube", "detectionBox ${detectionBox}")
+
+//            objectDetectorListener?.onResults(
+//                mutableListOf(Detection.create(detectionBox, detection.categories)),
+//                inferenceTime,
+//                image.height,
+//                image.width
+//            )
+            val detectionCroppedImage = Bitmap.createBitmap(image, detectionBox.left.toInt(), detectionBox.top.toInt(), detectionBox.width().toInt(), detectionBox.height().toInt())
+            objectDetectorListener?.onCropResult(
+                results,
+                inferenceTime,
+                detectionCroppedImage
+            )
+        } else {
+            objectDetectorListener?.onResults(
+                results,
+                inferenceTime,
+                tensorImage.height,
+                tensorImage.width
+            )
+        }
     }
 
     interface DetectorListener {
@@ -138,6 +174,12 @@ class ObjectDetectorHelper(
           inferenceTime: Long,
           imageHeight: Int,
           imageWidth: Int
+        )
+
+        fun onCropResult(
+            results: MutableList<Detection>?,
+            inferenceTime: Long,
+            croppedImage: Bitmap
         )
     }
 
@@ -149,5 +191,8 @@ class ObjectDetectorHelper(
         const val MODEL_EFFICIENTDETV0 = 1
         const val MODEL_EFFICIENTDETV1 = 2
         const val MODEL_EFFICIENTDETV2 = 3
+
+
+        const val INPUT_DIM = 256
     }
 }
