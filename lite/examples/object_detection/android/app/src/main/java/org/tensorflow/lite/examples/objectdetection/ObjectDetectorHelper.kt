@@ -17,6 +17,7 @@ package org.tensorflow.lite.examples.objectdetection
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.RectF
 import android.os.SystemClock
 import android.util.Log
 import org.tensorflow.lite.gpu.CompatibilityList
@@ -32,7 +33,7 @@ import org.tensorflow.lite.task.vision.detector.ObjectDetector
 class ObjectDetectorHelper(
   var threshold: Float = 0.5f,
   var numThreads: Int = 2,
-  var maxResults: Int = 3,
+  var maxResults: Int = 25,
   var currentDelegate: Int = 0,
   var currentModel: Int = 0,
   val context: Context,
@@ -87,8 +88,8 @@ class ObjectDetectorHelper(
         val modelName =
             when (currentModel) {
                 MODEL_MOBILENETV1 -> "cubecrop.0_224_metadata.tflite"
-                MODEL_EFFICIENTDETV0 -> "efficientdet-lite0.tflite"
-                MODEL_EFFICIENTDETV1 -> "efficientdet-lite1.tflite"
+                MODEL_EFFICIENTDETV0 -> "piece_classifier_metadata.tflite"
+                MODEL_EFFICIENTDETV1 -> "nms_piece_classifier_metadata.tflite"
                 MODEL_EFFICIENTDETV2 -> "handcube1_metadata.tflite"
                 else -> "mobilenetv1.tflite"
             }
@@ -117,7 +118,7 @@ class ObjectDetectorHelper(
         // See https://www.tensorflow.org/lite/inference_with_metadata/
         //            lite_support#imageprocessor_architecture
 
-        val isLandscape = image.width > image.height
+        val isLandscape = image.width < image.height
         val targetWidth = if (isLandscape) INPUT_DIM * image.width / image.height else INPUT_DIM
         val targetHeight = if (isLandscape) INPUT_DIM else INPUT_DIM * image.height / image.width
 
@@ -132,34 +133,37 @@ class ObjectDetectorHelper(
         // Preprocess the image and convert it into a TensorImage for detection.
         val tensorImage = imageProcessor.process(TensorImage.fromBitmap(image))
 
-        Log.d("cube", "image ${image.height} x ${image.width} rot ${imageRotation}")
+        Log.d("cube", "image ${image.width} x ${image.height} rot ${imageRotation} targetSize ${targetWidth} x ${targetHeight}")
 
         Log.d("cube", "tensorImage ${tensorImage.height} x ${tensorImage.width}")
 
         val results = objectDetector?.detect(tensorImage)
         inferenceTime = SystemClock.uptimeMillis() - inferenceTime
 
-        if (!results.isNullOrEmpty()) {
-            val detection: Detection = results[0]
-            val detectionBox = imageProcessor.inverseTransform(detection.boundingBox, image.height, image.width)
-            Log.d("cube", "boundingBox ${detection.boundingBox}")
-            Log.d("cube", "detectionBox ${detectionBox}")
+        if (MODEL_MOBILENETV1 == currentModel) {
+            if (!results.isNullOrEmpty()) {
+                val detection: Detection = results[0]
+                val detectionBox = imageProcessor.inverseTransform(detection.boundingBox, image.height, image.width)
+                Log.d("cube", "boundingBox ${detection.boundingBox}")
+                Log.d("cube", "detectionBox ${detectionBox}")
 
-//            objectDetectorListener?.onResults(
-//                mutableListOf(Detection.create(detectionBox, detection.categories)),
-//                inferenceTime,
-//                image.height,
-//                image.width
-//            )
-            val detectionCroppedImage = Bitmap.createBitmap(image, detectionBox.left.toInt(), detectionBox.top.toInt(), detectionBox.width().toInt(), detectionBox.height().toInt())
-            objectDetectorListener?.onCropResult(
-                results,
-                inferenceTime,
-                detectionCroppedImage
-            )
-        } else {
+                val detectionCroppedImage = Bitmap.createBitmap(image, detectionBox.left.toInt(), detectionBox.top.toInt(), detectionBox.width().toInt(), detectionBox.height().toInt())
+                objectDetectorListener?.onCropResult(
+                    results,
+                    inferenceTime,
+                    detectionCroppedImage
+                )
+            }
+        } else if (results != null){
+            val resultsMappedToCameraImage = results!!
+                .map { Detection.create(imageProcessor.inverseTransform(it.getBoundingBox(), image.height, image.width), it.categories) }
+                .toMutableList()
+
+            val sample = RectF(0.0f, 100.0f, 200.0f, 300.0f)
+            Log.d("cube", "from: ${sample} to ${imageProcessor.inverseTransform(sample, image.height, image.width)}")
+
             objectDetectorListener?.onResults(
-                results,
+                resultsMappedToCameraImage,
                 inferenceTime,
                 tensorImage.height,
                 tensorImage.width
@@ -191,8 +195,6 @@ class ObjectDetectorHelper(
         const val MODEL_EFFICIENTDETV0 = 1
         const val MODEL_EFFICIENTDETV1 = 2
         const val MODEL_EFFICIENTDETV2 = 3
-
-
-        const val INPUT_DIM = 256
+        const val INPUT_DIM = 512
     }
 }
